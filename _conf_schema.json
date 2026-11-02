@@ -1,0 +1,16 @@
+{
+  "history_mode": {
+    "description": "Thoughts 历史保存模式",
+    "type": "string",
+    "default": "preserve",
+    "options": [
+      "clean",
+      "preserve"
+    ],
+    "labels": [
+      "清理（Clean）",
+      "保留（Preserve）"
+    ],
+    "hint": "仅控制模型历史。两种模式都会把思考单独转发，并只把 {/thoughts} 后的内容作为正文发送。"
+  }
+}

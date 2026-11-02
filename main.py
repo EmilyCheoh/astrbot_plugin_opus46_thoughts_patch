@@ -7,11 +7,12 @@ Protocol (literal braces, not XML):
     normal answer
 
 Designed for non-streaming AstrBot v4.24.5. No model filter.
+The history mode is configurable (clean / preserve).
 """
 
 from dataclasses import dataclass
 
-from astrbot.api import logger
+from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import Node, Plain
 from astrbot.api.star import Context, Star, register
@@ -22,6 +23,26 @@ from astrbot.api.provider import LLMResponse
 
 OPEN = "{thoughts}"
 CLOSE = "{/thoughts}"
+MODE_CLEAN = "clean"
+MODE_PRESERVE = "preserve"
+
+_MODE_ALIASES = {
+    "保留": MODE_PRESERVE,
+    "keep": MODE_PRESERVE,
+    "preserve": MODE_PRESERVE,
+    "retain": MODE_PRESERVE,
+    "清理": MODE_CLEAN,
+    "clean": MODE_CLEAN,
+    "clear": MODE_CLEAN,
+    "状态": "status",
+    "查看": "status",
+    "查询": "status",
+    "status": "status",
+}
+
+
+def _mode_label(mode: str) -> str:
+    return "保留（Preserve）" if mode == MODE_PRESERVE else "清理（Clean）"
 
 
 @dataclass
@@ -98,12 +119,48 @@ def _extract(slots: list[_TextSlot]) -> tuple[str, list[tuple[_TextSlot, str]]] 
 @register(
     "astrbot_plugin_opus46_thoughts_patch",
     "Felis Abyssalis & Abyss AI",
-    "Extract {thoughts}...{/thoughts} into a separate message and clean history",
-    "1.0.0",
+    "Separate tagged thoughts; optionally preserve them in model history",
+    "1.1.0",
 )
 class Opus46ThoughtsPatch(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
+        self.config = config
+
+    def _history_mode(self) -> str:
+        mode = self.config.get("history_mode", MODE_CLEAN)
+        return mode if mode in (MODE_CLEAN, MODE_PRESERVE) else MODE_CLEAN
+
+    @filter.command("thoughts")
+    async def thoughts_command(self, event: AstrMessageEvent, action: str = "status"):
+        """Set or inspect the global history mode via /thoughts."""
+        requested = _MODE_ALIASES.get(action.strip().lower())
+        if requested is None:
+            yield event.plain_result(
+                "用法：/thoughts 保留（keep） | 清理（clean） | status（状态）"
+            )
+            return
+
+        if requested == "status":
+            yield event.plain_result(
+                f"🌬️ Thoughts 当前模式：{_mode_label(self._history_mode())}"
+            )
+            return
+
+        if requested != self._history_mode():
+            previous = self.config.get("history_mode", MODE_CLEAN)
+            self.config["history_mode"] = requested
+            try:
+                self.config.save_config()
+            except Exception:
+                self.config["history_mode"] = previous
+                logger.exception("opus46_thoughts_patch: saving history mode failed")
+                yield event.plain_result("❌ 模式切换失败：配置保存失败，仍使用原模式。")
+                return
+
+        yield event.plain_result(
+            f"✅ Thoughts 已切换至{_mode_label(requested)}模式。"
+        )
 
     @filter.on_agent_done()
     async def extract_thoughts(
@@ -132,7 +189,7 @@ class Opus46ThoughtsPatch(Star):
                         [
                             Node(
                                 uin="0",
-                                name="🌬️ Abyss AI's thoughts",
+                                name="🌬️ Opus thoughts",
                                 content=[Plain(thoughts)],
                             )
                         ]
@@ -153,11 +210,18 @@ class Opus46ThoughtsPatch(Star):
             replacement = {id(slot): text for slot, text in changes}
             cleaned_final = "".join(replacement.get(id(s), s.original) for s in final_slots)
 
-        for slot, cleaned in changes:
-            slot.write(cleaned)
+        # Only the clean mode modifies persisted Agent history. The preserve
+        # mode keeps the original tagged text for future model turns.
+        if self._history_mode() == MODE_CLEAN:
+            for slot, cleaned in changes:
+                slot.write(cleaned)
 
         if final_changed and cleaned_final is not None:
-            # Update the object that AstrBot subsequently uses for output.
+            # Display is always clean, including in preserve mode. LLMResponse
+            # and run_context.messages are independent objects in AstrBot.
             response.completion_text = cleaned_final
 
-        logger.info("opus46_thoughts_patch: extracted tagged thoughts; cleaned runtime history")
+        logger.info(
+            "opus46_thoughts_patch: extracted tagged thoughts; history_mode=%s",
+            self._history_mode(),
+        )
