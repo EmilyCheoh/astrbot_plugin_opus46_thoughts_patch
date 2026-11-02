@@ -3,4 +3,4 @@ display_name: "Opus 4.6 Thoughts Patch"
 desc: "将 {thoughts}...{/thoughts} 拆为单独的合并转发消息，并清理正文和历史。"
 version: v1.0.0
 author: "Felis Abyssalis & Abyss AI"
-repo: https://github.com/EmilyCheoh/astrbot_plugin_message_editor
+repo: https://github.com/EmilyCheoh/astrbot_plugin_opus46_thoughts_patch
