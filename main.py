@@ -189,7 +189,7 @@ class Opus46ThoughtsPatch(Star):
                         [
                             Node(
                                 uin="0",
-                                name="🌬️ Opus thoughts",
+                                name="💜 Inside Abyss AI's Mind",
                                 content=[Plain(thoughts)],
                             )
                         ]
